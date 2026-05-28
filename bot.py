@@ -118,33 +118,53 @@ async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
+async def _start_lesson(msg, context: ContextTypes.DEFAULT_TYPE, lesson_id: int, check_unlock: bool = True):
+    if check_unlock:
+        progress = db.get_all_progress()
+        if not lesson_engine.is_lesson_unlocked(lesson_id, progress):
+            await msg.reply_text(
+                f"🔒 Сначала пройди урок {lesson_id - 1}. /lesson {lesson_id - 1}"
+            )
+            return
+    try:
+        lesson = lesson_engine.load_lesson(lesson_id)
+    except FileNotFoundError:
+        await msg.reply_text("Урок не найден.")
+        return
+    theory = lesson_engine.format_lesson_theory(lesson)
+    await msg.reply_text(theory, parse_mode="Markdown")
+    context.user_data["lesson"] = lesson
+    context.user_data["ex_idx"] = 0
+    context.user_data["ex_score"] = 0
+    await _send_exercise(msg, context)
+
+
+async def _start_test(msg, context: ContextTypes.DEFAULT_TYPE, level: str):
+    try:
+        test = lesson_engine.load_test(level)
+    except FileNotFoundError:
+        await msg.reply_text("Тест не найден.")
+        return
+    context.user_data["test"] = test
+    context.user_data["test_idx"] = 0
+    context.user_data["test_score"] = 0
+    await msg.reply_text(
+        f"📝 *{test['title']}*\n\n"
+        f"{len(test['questions'])} вопросов. "
+        f"Порог сдачи: {int(test['pass_threshold'] * 100)}%.\n\n"
+        f"Начинаем!",
+        parse_mode="Markdown",
+    )
+    await _send_test_question(msg, context)
+
+
 async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         lesson_id = int(context.args[0])
     except (IndexError, ValueError):
         await update.message.reply_text("Укажи номер урока: /lesson 1")
         return
-
-    progress = db.get_all_progress()
-    if not lesson_engine.is_lesson_unlocked(lesson_id, progress):
-        await update.message.reply_text(
-            f"🔒 Сначала пройди урок {lesson_id - 1}. /lesson {lesson_id - 1}"
-        )
-        return
-
-    try:
-        lesson = lesson_engine.load_lesson(lesson_id)
-    except FileNotFoundError:
-        await update.message.reply_text("Урок не найден.")
-        return
-
-    theory = lesson_engine.format_lesson_theory(lesson)
-    await update.message.reply_text(theory, parse_mode="Markdown")
-
-    context.user_data["lesson"] = lesson
-    context.user_data["ex_idx"] = 0
-    context.user_data["ex_score"] = 0
-    await _send_exercise(update.message, context)
+    await _start_lesson(update.message, context, lesson_id)
 
 
 async def cmd_lesson_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,8 +185,7 @@ async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError):
         await update.message.reply_text("Укажи номер урока: /repeat 1")
         return
-    context.args = [str(lesson_id)]
-    await cmd_lesson(update, context)
+    await _start_lesson(update.message, context, lesson_id, check_unlock=False)
 
 
 async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -176,25 +195,7 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError, AssertionError):
         await update.message.reply_text("Укажи уровень: /test hsk1 или /test hsk2")
         return
-
-    try:
-        test = lesson_engine.load_test(level)
-    except FileNotFoundError:
-        await update.message.reply_text("Тест не найден.")
-        return
-
-    context.user_data["test"] = test
-    context.user_data["test_idx"] = 0
-    context.user_data["test_score"] = 0
-
-    await update.message.reply_text(
-        f"📝 *{test['title']}*\n\n"
-        f"{len(test['questions'])} вопросов. "
-        f"Порог сдачи: {int(test['pass_threshold'] * 100)}%.\n\n"
-        f"Начинаем!",
-        parse_mode="Markdown",
-    )
-    await _send_test_question(update.message, context)
+    await _start_test(update.message, context, level)
 
 
 # ── lesson flow ───────────────────────────────────────────────────────────────
@@ -372,18 +373,15 @@ async def handle_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("next_"):
         lesson_id = int(data[5:])
-        context.args = [str(lesson_id)]
-        await cmd_lesson(update, context)
+        await _start_lesson(query.message, context, lesson_id)
 
     elif data.startswith("redo_"):
         lesson_id = int(data[5:])
-        context.args = [str(lesson_id)]
-        await cmd_lesson(update, context)
+        await _start_lesson(query.message, context, lesson_id, check_unlock=False)
 
     elif data.startswith("retest_"):
         level = data[7:]
-        context.args = [level]
-        await cmd_test(update, context)
+        await _start_test(query.message, context, level)
 
 
 # ── pronunciation ─────────────────────────────────────────────────────────────
