@@ -2,7 +2,8 @@ import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler, ContextTypes,
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ContextTypes, filters,
 )
 import db
 import lesson_engine
@@ -120,6 +121,18 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["ex_idx"] = 0
     context.user_data["ex_score"] = 0
     await _send_exercise(update.message, context)
+
+
+async def cmd_lesson_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /lesson1, /lesson2, ... /lesson50 and /repeat1 ... /repeat50."""
+    import re
+    text = update.message.text.strip()
+    m = re.match(r'^/(lesson|repeat)(\d+)', text, re.IGNORECASE)
+    if not m:
+        return
+    lesson_id = int(m.group(2))
+    context.args = [str(lesson_id)]
+    await cmd_lesson(update, context)
 
 
 async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -359,6 +372,10 @@ def main():
     app.add_handler(CommandHandler("repeat", cmd_repeat))
     app.add_handler(CommandHandler("test", cmd_test))
 
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r'^/(lesson|repeat)\d+'),
+        cmd_lesson_shortcut,
+    ))
     app.add_handler(CallbackQueryHandler(handle_exercise_answer, pattern=r"^ans_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_test_answer, pattern=r"^tans_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_nav, pattern=r"^(next_|redo_|retest_)"))
