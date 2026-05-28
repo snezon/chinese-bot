@@ -44,7 +44,7 @@ def _transcribe_sync(audio_path: str) -> str:
 
 
 async def _transcribe(audio_path: str) -> str:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _transcribe_sync, audio_path)
 
 logging.basicConfig(
@@ -204,8 +204,7 @@ async def _handle_pronunciation_voice(update: Update, context: ContextTypes.DEFA
         recognized = await _transcribe(tmp_path)
     except Exception as e:
         logger.error("Whisper error: %s", e)
-        await status.edit_text("❌ Не удалось распознать. Попробуй ещё раз или нажми «Пропустить».")
-        return
+        recognized = ""
     finally:
         os.unlink(tmp_path)
     hanzi = pron_word["hanzi"]
