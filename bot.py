@@ -1,5 +1,7 @@
+import io
 import os
 import re
+import random
 import tempfile
 import logging
 from openai import AsyncOpenAI
@@ -26,7 +28,6 @@ logger = logging.getLogger(__name__)
 # ── word index ───────────────────────────────────────────────────────────────
 
 def _build_word_index():
-    """Load all lesson words into a flat hanzi→(pinyin, ru) dict."""
     global _all_words
     for meta in lesson_engine.get_all_lesson_meta():
         try:
@@ -39,7 +40,138 @@ def _build_word_index():
                 _all_words[hanzi] = (w.get("pinyin", ""), w.get("ru", ""))
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── TTS & listening helpers ───────────────────────────────────────────────────
+
+async def _tts(text: str) -> bytes:
+    response = await _openai.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=text,
+        response_format="opus",
+    )
+    return response.content
+
+
+def _generate_listening_questions(lesson: dict, count: int = 2) -> list:
+    words = lesson.get("words", [])
+    if len(words) < 2:
+        return []
+    all_ru = list({ru for _, (_, ru) in _all_words.items()})
+    test_words = random.sample(words, min(count, len(words)))
+    questions = []
+    for word in test_words:
+        correct = word["ru"]
+        pool = [r for r in all_ru if r != correct]
+        distractors = random.sample(pool, min(3, len(pool)))
+        options = distractors + [correct]
+        random.shuffle(options)
+        questions.append({
+            "hanzi": word["hanzi"],
+            "pinyin": word["pinyin"],
+            "ru": correct,
+            "options": options,
+            "correct_idx": options.index(correct),
+        })
+    return questions
+
+
+async def _send_listening_question(msg, context: ContextTypes.DEFAULT_TYPE):
+    questions = context.user_data.get("listen_questions", [])
+    idx = context.user_data.get("listen_idx", 0)
+    total = len(questions)
+    if idx >= total:
+        return
+    q = questions[idx]
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(opt, callback_data=f"lans_{i}")]
+        for i, opt in enumerate(q["options"])
+    ])
+    caption = f"🎧 *Слушание {idx + 1}/{total}:* что ты услышала?"
+    try:
+        audio = await _tts(q["hanzi"])
+        await msg.reply_voice(
+            voice=io.BytesIO(audio),
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        logger.error("TTS error: %s", e)
+        await msg.reply_text(
+            f"{caption}\n\n_{q['hanzi']}_",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+
+
+async def _send_pronunciation_prompt(msg, context: ContextTypes.DEFAULT_TYPE):
+    lesson = context.user_data.get("lesson")
+    if not lesson or not lesson.get("words"):
+        context.user_data["phase"] = "exercises"
+        await _send_exercise(msg, context)
+        return
+    word = lesson["words"][0]
+    context.user_data["pron_word"] = word
+    context.user_data["phase"] = "pronunciation"
+    skip_kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Пропустить →", callback_data="skip_pron")
+    ]])
+    caption = (
+        f"🗣 *Произношение*\n\n"
+        f"Послушай и повтори: *{word['hanzi']}* `{word['pinyin']}` — {word['ru']}\n\n"
+        f"Отправь голосовое или нажми «Пропустить»"
+    )
+    try:
+        audio = await _tts(word["hanzi"])
+        await msg.reply_voice(
+            voice=io.BytesIO(audio),
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=skip_kb,
+        )
+    except Exception as e:
+        logger.error("TTS error: %s", e)
+        await msg.reply_text(caption, parse_mode="Markdown", reply_markup=skip_kb)
+
+
+async def _handle_pronunciation_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pron_word = context.user_data["pron_word"]
+    status = await update.message.reply_text("🎤 Слушаю...")
+    voice = update.message.voice or update.message.audio
+    tg_file = await voice.get_file()
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        await tg_file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+    try:
+        with open(tmp_path, "rb") as af:
+            transcript = await _openai.audio.transcriptions.create(
+                model="whisper-1", file=af, language="zh", response_format="text",
+            )
+        recognized = transcript.strip()
+    except Exception as e:
+        logger.error("Whisper error: %s", e)
+        await status.edit_text("❌ Не удалось распознать. Попробуй ещё раз или нажми «Пропустить».")
+        return
+    finally:
+        os.unlink(tmp_path)
+    hanzi = pron_word["hanzi"]
+    pinyin = pron_word["pinyin"]
+    if hanzi in recognized or recognized in hanzi:
+        await status.edit_text(
+            f"✅ Отлично! Распознал: *{recognized}*\n*{hanzi}* `{pinyin}` — произнесено верно!",
+            parse_mode="Markdown",
+        )
+        context.user_data["phase"] = "exercises"
+        await _send_exercise(update.message, context)
+    else:
+        await status.edit_text(
+            f"🎤 Распознал: *{recognized}*\n"
+            f"Ожидалось: *{hanzi}* `{pinyin}` — попробуй ещё раз или пропусти.",
+            parse_mode="Markdown",
+        )
+
+
+# ── keyboard helpers ─────────────────────────────────────────────────────────
 
 def _make_exercise_keyboard(options: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -60,15 +192,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "你好！👋 Я твой личный репетитор китайского языка.\n\n"
         "Программа: 50 уроков — полный HSK 1 и HSK 2 (~300 слов).\n"
-        "Каждый урок: слова с иероглифами, пиньинь, мнемоники и упражнения.\n\n"
+        "Каждый урок: слова с иероглифами, пиньинь, мнемоники, "
+        "аудио произношение и упражнения.\n\n"
         "*Команды:*\n"
+        "/lesson1 — начать урок 1\n"
         "/lessons — список всех уроков\n"
-        "/lesson 1 — начать урок 1\n"
         "/progress — твой прогресс\n"
         "/test hsk1 — финальный тест HSK 1\n"
         "/test hsk2 — финальный тест HSK 2\n"
-        "/repeat 1 — повторить урок 1\n\n"
-        "Начнём с урока 1? Напиши /lesson 1",
+        "/repeat1 — повторить урок 1\n\n"
+        "Начнём? Напиши /lesson1",
         parse_mode="Markdown",
     )
 
@@ -83,7 +216,7 @@ async def cmd_lessons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if m["id"] == 26:
             lines.append("\n*Уроки HSK 2:*")
         icon = "✅" if m["id"] in completed_ids else "📖"
-        lines.append(f"{icon} {m['id']}. {m['title']}")
+        lines.append(f"{icon} /lesson{m['id']} — {m['title']}")
 
     hsk1_done = db.get_test_result("hsk1")
     hsk2_done = db.get_test_result("hsk2")
@@ -118,12 +251,14 @@ async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
+# ── lesson start ──────────────────────────────────────────────────────────────
+
 async def _start_lesson(msg, context: ContextTypes.DEFAULT_TYPE, lesson_id: int, check_unlock: bool = True):
     if check_unlock:
         progress = db.get_all_progress()
         if not lesson_engine.is_lesson_unlocked(lesson_id, progress):
             await msg.reply_text(
-                f"🔒 Сначала пройди урок {lesson_id - 1}. /lesson {lesson_id - 1}"
+                f"🔒 Сначала пройди урок {lesson_id - 1}. /lesson{lesson_id - 1}"
             )
             return
     try:
@@ -136,7 +271,16 @@ async def _start_lesson(msg, context: ContextTypes.DEFAULT_TYPE, lesson_id: int,
     context.user_data["lesson"] = lesson
     context.user_data["ex_idx"] = 0
     context.user_data["ex_score"] = 0
-    await _send_exercise(msg, context)
+
+    listen_qs = _generate_listening_questions(lesson)
+    if listen_qs:
+        context.user_data["phase"] = "listening"
+        context.user_data["listen_idx"] = 0
+        context.user_data["listen_score"] = 0
+        context.user_data["listen_questions"] = listen_qs
+        await _send_listening_question(msg, context)
+    else:
+        await _send_pronunciation_prompt(msg, context)
 
 
 async def _start_test(msg, context: ContextTypes.DEFAULT_TYPE, level: str):
@@ -162,14 +306,12 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         lesson_id = int(context.args[0])
     except (IndexError, ValueError):
-        await update.message.reply_text("Укажи номер урока: /lesson 1")
+        await update.message.reply_text("Укажи номер урока: /lesson1")
         return
     await _start_lesson(update.message, context, lesson_id)
 
 
 async def cmd_lesson_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /lesson1, /lesson2, ... /lesson50 and /repeat1 ... /repeat50."""
-    import re
     text = update.message.text.strip()
     m = re.match(r'^/(lesson|repeat)(\d+)', text, re.IGNORECASE)
     if not m:
@@ -183,7 +325,7 @@ async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         lesson_id = int(context.args[0])
     except (IndexError, ValueError):
-        await update.message.reply_text("Укажи номер урока: /repeat 1")
+        await update.message.reply_text("Укажи номер урока: /repeat1")
         return
     await _start_lesson(update.message, context, lesson_id, check_unlock=False)
 
@@ -206,11 +348,9 @@ async def _send_exercise(msg, context: ContextTypes.DEFAULT_TYPE):
         return
     idx = context.user_data["ex_idx"]
     exercises = lesson["exercises"]
-
     if idx >= len(exercises):
         await _finish_lesson(msg, context)
         return
-
     ex = exercises[idx]
     total = len(exercises)
     await msg.reply_text(
@@ -220,10 +360,37 @@ async def _send_exercise(msg, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    questions = context.user_data.get("listen_questions")
+    if not questions:
+        await query.message.reply_text("⚠️ Сессия прервалась. Начни урок заново: /lesson1")
+        return
+    idx = context.user_data["listen_idx"]
+    q = questions[idx]
+    ans_idx = int(query.data.split("_")[1])
+    if ans_idx == q["correct_idx"]:
+        context.user_data["listen_score"] = context.user_data.get("listen_score", 0) + 1
+        await query.message.reply_text(
+            f"✅ Правильно! *{q['hanzi']}* `{q['pinyin']}` — {q['ru']}",
+            parse_mode="Markdown",
+        )
+    else:
+        await query.message.reply_text(
+            f"❌ Это было *{q['hanzi']}* `{q['pinyin']}` — {q['ru']}",
+            parse_mode="Markdown",
+        )
+    context.user_data["listen_idx"] += 1
+    if context.user_data["listen_idx"] >= len(questions):
+        await _send_pronunciation_prompt(query.message, context)
+    else:
+        await _send_listening_question(query.message, context)
+
+
 async def handle_exercise_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     lesson = context.user_data.get("lesson")
     if not lesson:
         await query.message.reply_text(
@@ -231,11 +398,9 @@ async def handle_exercise_answer(update: Update, context: ContextTypes.DEFAULT_T
             "Начни урок заново, например: /lesson1"
         )
         return
-
     ans_idx = int(query.data.split("_")[1])
     idx = context.user_data["ex_idx"]
     ex = lesson["exercises"][idx]
-
     if ans_idx == ex["answer"]:
         context.user_data["ex_score"] += 1
         await query.message.reply_text("✅ Правильно!")
@@ -245,7 +410,6 @@ async def handle_exercise_answer(update: Update, context: ContextTypes.DEFAULT_T
             f"❌ Неверно. Правильный ответ: *{correct}*",
             parse_mode="Markdown",
         )
-
     context.user_data["ex_idx"] += 1
     await _send_exercise(query.message, context)
 
@@ -295,11 +459,9 @@ async def _send_test_question(msg, context: ContextTypes.DEFAULT_TYPE):
         return
     idx = context.user_data["test_idx"]
     questions = test["questions"]
-
     if idx >= len(questions):
         await _finish_test(msg, context)
         return
-
     q = questions[idx]
     total = len(questions)
     await msg.reply_text(
@@ -312,7 +474,6 @@ async def _send_test_question(msg, context: ContextTypes.DEFAULT_TYPE):
 async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     test = context.user_data.get("test")
     if not test:
         await query.message.reply_text(
@@ -320,18 +481,15 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "Начни тест заново: /test hsk1 или /test hsk2"
         )
         return
-
     ans_idx = int(query.data.split("_")[1])
     idx = context.user_data["test_idx"]
     q = test["questions"][idx]
-
     if ans_idx == q["answer"]:
         context.user_data["test_score"] += 1
         await query.message.reply_text("✅")
     else:
         correct = q["options"][q["answer"]]
         await query.message.reply_text(f"❌ *{correct}*", parse_mode="Markdown")
-
     context.user_data["test_idx"] += 1
     await _send_test_question(query.message, context)
 
@@ -346,10 +504,7 @@ async def _finish_test(msg, context: ContextTypes.DEFAULT_TYPE):
     db.save_test_result(level, pct, test["pass_threshold"])
     passed = pct >= test["pass_threshold"]
 
-    keyboard = [[InlineKeyboardButton(
-        "🔄 Пересдать",
-        callback_data=f"retest_{level}",
-    )]]
+    keyboard = [[InlineKeyboardButton("🔄 Пересдать", callback_data=f"retest_{level}")]]
     icon = "🎓" if passed else "📚"
     await msg.reply_text(
         f"{icon} *Тест завершён!*\n\n"
@@ -383,24 +538,30 @@ async def handle_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         level = data[7:]
         await _start_test(query.message, context, level)
 
+    elif data == "skip_pron":
+        context.user_data["phase"] = "exercises"
+        await _send_exercise(query.message, context)
 
-# ── pronunciation ─────────────────────────────────────────────────────────────
+
+# ── voice / pronunciation ─────────────────────────────────────────────────────
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Download voice → Whisper → compare with lesson words → feedback."""
     if not _openai.api_key:
         await update.message.reply_text("OPENAI_API_KEY не задан.")
         return
 
-    msg = await update.message.reply_text("🎤 Слушаю...")
+    # In-lesson pronunciation evaluation
+    if context.user_data.get("phase") == "pronunciation" and context.user_data.get("pron_word"):
+        await _handle_pronunciation_voice(update, context)
+        return
 
+    # Free-form practice outside lessons
+    msg = await update.message.reply_text("🎤 Слушаю...")
     voice = update.message.voice or update.message.audio
     tg_file = await voice.get_file()
-
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         await tg_file.download_to_drive(tmp.name)
         tmp_path = tmp.name
-
     try:
         with open(tmp_path, "rb") as audio_f:
             transcript = await _openai.audio.transcriptions.create(
@@ -421,7 +582,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("🤔 Ничего не расслышал. Говори чётче и ближе к микрофону.")
         return
 
-    # Check against known words
     matched = []
     for hanzi, (pinyin, ru) in _all_words.items():
         if hanzi in recognized:
@@ -467,9 +627,10 @@ def main():
         cmd_lesson_shortcut,
     ))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+    app.add_handler(CallbackQueryHandler(handle_listening_answer, pattern=r"^lans_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_exercise_answer, pattern=r"^ans_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_test_answer, pattern=r"^tans_\d+$"))
-    app.add_handler(CallbackQueryHandler(handle_nav, pattern=r"^(next_|redo_|retest_)"))
+    app.add_handler(CallbackQueryHandler(handle_nav, pattern=r"^(next_|redo_|retest_|skip_pron)"))
 
     logger.info("Bot started. Polling...")
     app.run_polling(drop_pending_updates=True)
