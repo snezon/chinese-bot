@@ -225,6 +225,10 @@ async def handle_exercise_answer(update: Update, context: ContextTypes.DEFAULT_T
 
     lesson = context.user_data.get("lesson")
     if not lesson:
+        await query.message.reply_text(
+            "⚠️ Сессия урока прервалась (бот перезапускался).\n"
+            "Начни урок заново, например: /lesson1"
+        )
         return
 
     ans_idx = int(query.data.split("_")[1])
@@ -310,6 +314,10 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     test = context.user_data.get("test")
     if not test:
+        await query.message.reply_text(
+            "⚠️ Сессия теста прервалась (бот перезапускался).\n"
+            "Начни тест заново: /test hsk1 или /test hsk2"
+        )
         return
 
     ans_idx = int(query.data.split("_")[1])
