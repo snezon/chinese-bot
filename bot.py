@@ -71,13 +71,14 @@ def _build_word_index():
 # ── TTS & listening helpers ───────────────────────────────────────────────────
 
 async def _tts(text: str) -> bytes:
-    response = await _openai.audio.speech.create(
-        model="tts-1",
-        voice="nova",
-        input=text,
-        response_format="opus",
-    )
-    return response.content
+    import edge_tts
+    communicate = edge_tts.Communicate(text, voice="zh-CN-XiaoxiaoNeural")
+    buf = io.BytesIO()
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            buf.write(chunk["data"])
+    buf.seek(0)
+    return buf.read()
 
 
 def _generate_listening_questions(lesson: dict, count: int = 2) -> list:
