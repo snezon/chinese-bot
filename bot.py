@@ -3,6 +3,7 @@ import os
 import re
 import random
 import asyncio
+import threading
 import tempfile
 import logging
 from openai import AsyncOpenAI
@@ -19,17 +20,20 @@ _openai = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 # flat dict: hanzi → (pinyin, ru) for all HSK1+2 words — built once at startup
 _all_words: dict = {}
 
-# faster-whisper model — loaded lazily on first voice message
+# faster-whisper model — loaded at startup, protected by a lock
 _whisper_model = None
+_whisper_lock = threading.Lock()
+_voice_semaphore: asyncio.Semaphore | None = None  # init in main()
 
 
 def _get_whisper():
     global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel
-        logger.info("Loading Whisper tiny model...")
-        _whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
-        logger.info("Whisper model ready")
+    with _whisper_lock:
+        if _whisper_model is None:
+            from faster_whisper import WhisperModel
+            logger.info("Loading Whisper tiny model...")
+            _whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+            logger.info("Whisper model ready")
     return _whisper_model
 
 
@@ -614,10 +618,11 @@ async def handle_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── voice / pronunciation ─────────────────────────────────────────────────────
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _openai.api_key:
-        await update.message.reply_text("OPENAI_API_KEY не задан.")
-        return
+    async with _voice_semaphore:
+        await _handle_voice_inner(update, context)
 
+
+async def _handle_voice_inner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # In-lesson pronunciation evaluation
     if context.user_data.get("phase") == "pronunciation" and context.user_data.get("pron_word"):
         await _handle_pronunciation_voice(update, context)
@@ -666,9 +671,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    global _voice_semaphore
     db.init_db()
     _build_word_index()
     logger.info("Word index loaded: %d words", len(_all_words))
+    _get_whisper()  # warm up model at startup so first voice is instant
+    _voice_semaphore = asyncio.Semaphore(1)  # one voice at a time
 
     token = os.environ.get("BOT_TOKEN")
     if not token:
