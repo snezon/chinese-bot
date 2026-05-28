@@ -1,0 +1,337 @@
+{
+  "level": "hsk1",
+  "title": "Финальный тест HSK 1",
+  "pass_threshold": 0.6,
+  "questions": [
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 谢谢?",
+      "options": [
+        "Спасибо",
+        "Привет",
+        "Пока",
+        "Извините"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Как сказать «До свидания»?",
+      "options": [
+        "再见",
+        "你好",
+        "谢谢",
+        "请"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 七?",
+      "options": [
+        "семь",
+        "шесть",
+        "восемь",
+        "девять"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Как сказать «два человека» перед счётным словом?",
+      "options": [
+        "两个人",
+        "二个人",
+        "三个人",
+        "四个人"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 她?",
+      "options": [
+        "она",
+        "он",
+        "я",
+        "ты"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 妈妈?",
+      "options": [
+        "мама",
+        "папа",
+        "сестра",
+        "тётя"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Как спросить «что это»?",
+      "options": [
+        "这是什么？",
+        "这是谁？",
+        "这在哪儿？",
+        "这怎么样？"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 有?",
+      "options": [
+        "иметь/есть",
+        "быть",
+        "хотеть",
+        "мочь"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 喝?",
+      "options": [
+        "пить",
+        "есть",
+        "готовить",
+        "покупать"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 书?",
+      "options": [
+        "книга",
+        "стол",
+        "стул",
+        "ручка"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 家?",
+      "options": [
+        "дом/семья",
+        "школа",
+        "больница",
+        "магазин"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 来?",
+      "options": [
+        "приходить",
+        "уходить",
+        "возвращаться",
+        "сидеть"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 现在?",
+      "options": [
+        "сейчас",
+        "потом",
+        "вчера",
+        "завтра"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 今天?",
+      "options": [
+        "сегодня",
+        "завтра",
+        "вчера",
+        "на прошлой неделе"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 天气?",
+      "options": [
+        "погода",
+        "небо",
+        "воздух",
+        "облако"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 高兴?",
+      "options": [
+        "радостный",
+        "грустный",
+        "злой",
+        "усталый"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 听?",
+      "options": [
+        "слушать",
+        "говорить",
+        "смотреть",
+        "читать"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 老师?",
+      "options": [
+        "учитель",
+        "студент",
+        "врач",
+        "друг"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 喜欢?",
+      "options": [
+        "нравиться",
+        "ненавидеть",
+        "бояться",
+        "забывать"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 上?",
+      "options": [
+        "вверху/на",
+        "внизу/под",
+        "впереди",
+        "сзади"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 钱?",
+      "options": [
+        "деньги",
+        "цена",
+        "монета",
+        "банк"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 打电话?",
+      "options": [
+        "звонить по телефону",
+        "писать письмо",
+        "отправлять смс",
+        "смотреть ТВ"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 住?",
+      "options": [
+        "жить/проживать",
+        "работать",
+        "учиться",
+        "стоять"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Для чего используется 吗?",
+      "options": [
+        "Вопрос да/нет",
+        "Завершение",
+        "Притяжательность",
+        "Соединение"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 睡觉?",
+      "options": [
+        "спать",
+        "вставать",
+        "есть",
+        "отдыхать"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Как сказать «я не студент»?",
+      "options": [
+        "我不是学生",
+        "我没是学生",
+        "学生不我",
+        "我是不学生"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 水果?",
+      "options": [
+        "фрукты",
+        "овощи",
+        "еда",
+        "напиток"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 中午?",
+      "options": [
+        "полдень",
+        "утро",
+        "вечер",
+        "ночь"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 知道?",
+      "options": [
+        "знать факт",
+        "знать лично",
+        "понимать",
+        "учить"
+      ],
+      "answer": 0
+    },
+    {
+      "type": "multiple_choice",
+      "question": "Что значит 可以?",
+      "options": [
+        "можно/разрешено",
+        "нельзя",
+        "должен",
+        "хочу"
+      ],
+      "answer": 0
+    }
+  ]
+}
