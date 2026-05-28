@@ -135,11 +135,33 @@ _TONE_MAP = str.maketrans(
 )
 
 
+def _segment(s: str) -> list:
+    """Greedily split unsegmented pinyin into known syllables (longest match first)."""
+    result = []
+    i = 0
+    while i < len(s):
+        matched = False
+        for length in range(min(6, len(s) - i), 0, -1):
+            candidate = s[i:i + length]
+            if candidate in _TABLE:
+                result.append(candidate)
+                i += length
+                matched = True
+                break
+        if not matched:
+            result.append(s[i])
+            i += 1
+    return result
+
+
 def pinyin_to_ru(pinyin: str) -> str:
     """Convert pinyin string (single or multi-syllable) to Russian approximation."""
     s = pinyin.lower().translate(_TONE_MAP)
-    s = re.sub(r'[1-5\s]+', ' ', s).strip()
+    s = re.sub(r'[1-5]+', '', s).strip()
     parts = []
-    for syl in s.split():
-        parts.append(_TABLE.get(syl, syl))
+    for token in s.split():
+        if token in _TABLE:
+            parts.append(_TABLE[token])
+        else:
+            parts.extend(_TABLE.get(seg, seg) for seg in _segment(token))
     return '-'.join(parts)
