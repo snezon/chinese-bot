@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from pinyin_ru import pinyin_to_ru
 
 LESSONS_DIR = Path(__file__).parent / "lessons"
 TOTAL_LESSONS = 50
@@ -44,7 +45,8 @@ def format_lesson_theory(lesson: dict) -> str:
     lines = [f"📚 *Урок {lesson['id']}: {lesson['title']}*\n"]
     lines.append("*Слова урока:*\n")
     for w in lesson["words"]:
-        lines.append(f"*{w['hanzi']}* `{w['pinyin']}` — {w['ru']}")
+        ru_sound = pinyin_to_ru(w['pinyin'])
+        lines.append(f"*{w['hanzi']}* `{w['pinyin']}` _{ru_sound}_ — {w['ru']}")
         if w.get("mnemonic"):
             lines.append(f"   💡 _{w['mnemonic']}_")
         if w.get("etymology"):

@@ -2,6 +2,7 @@ import io
 import os
 import re
 import random
+import asyncio
 import tempfile
 import logging
 from openai import AsyncOpenAI
@@ -17,6 +18,30 @@ _openai = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 # flat dict: hanzi → (pinyin, ru) for all HSK1+2 words — built once at startup
 _all_words: dict = {}
+
+# faster-whisper model — loaded lazily on first voice message
+_whisper_model = None
+
+
+def _get_whisper():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        logger.info("Loading Whisper tiny model...")
+        _whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        logger.info("Whisper model ready")
+    return _whisper_model
+
+
+def _transcribe_sync(audio_path: str) -> str:
+    model = _get_whisper()
+    segments, _ = model.transcribe(audio_path, language="zh")
+    return "".join(seg.text for seg in segments).strip()
+
+
+async def _transcribe(audio_path: str) -> str:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _transcribe_sync, audio_path)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -172,11 +197,7 @@ async def _handle_pronunciation_voice(update: Update, context: ContextTypes.DEFA
         await tg_file.download_to_drive(tmp.name)
         tmp_path = tmp.name
     try:
-        with open(tmp_path, "rb") as af:
-            transcript = await _openai.audio.transcriptions.create(
-                model="whisper-1", file=af, language="zh", response_format="text",
-            )
-        recognized = transcript.strip()
+        recognized = await _transcribe(tmp_path)
     except Exception as e:
         logger.error("Whisper error: %s", e)
         await status.edit_text("❌ Не удалось распознать. Попробуй ещё раз или нажми «Пропустить».")
@@ -610,14 +631,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await tg_file.download_to_drive(tmp.name)
         tmp_path = tmp.name
     try:
-        with open(tmp_path, "rb") as audio_f:
-            transcript = await _openai.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_f,
-                language="zh",
-                response_format="text",
-            )
-        recognized = transcript.strip()
+        recognized = await _transcribe(tmp_path)
     except Exception as e:
         logger.error("Whisper error: %s", e)
         await msg.edit_text("❌ Не удалось распознать аудио. Попробуй ещё раз.")
