@@ -24,6 +24,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── mascot phrases ────────────────────────────────────────────────────────────
+
+_CORRECT = [
+    "✅ Точно! Ты в ударе сегодня 🔥",
+    "✅ Да, правильно! 对了～",
+    "✅ Ес! Так держать 💪",
+    "✅ Мико доволен 😏 Всё верно!",
+    "✅ Огонь! Запомни это слово навсегда 🧠",
+]
+
+_WRONG = [
+    "❌ Мимо. Правильно: *{correct}* — запомни!",
+    "❌ Не то, но не беда. Правильно: *{correct}*",
+    "❌ Чуть-чуть не дошло. *{correct}* — вот что нужно было!",
+    "❌ Ошибочка. Держи правильный: *{correct}*",
+]
+
+_LISTEN_CORRECT = [
+    "✅ Слух — огонь! Это *{hanzi}* `{pinyin}` — {ru}",
+    "✅ Поймала! *{hanzi}* `{pinyin}` — {ru} 🎧",
+    "✅ Супер-уши! *{hanzi}* `{pinyin}` — {ru}",
+]
+
+_LISTEN_WRONG = [
+    "❌ Это было *{hanzi}* `{pinyin}` — {ru}. Слушай внимательнее в следующий раз 👂",
+    "❌ Нет, это *{hanzi}* `{pinyin}` — {ru}. Ничего, потренируемся!",
+]
+
 
 # ── word index ───────────────────────────────────────────────────────────────
 
@@ -117,9 +145,9 @@ async def _send_pronunciation_prompt(msg, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("Пропустить →", callback_data="skip_pron")
     ]])
     caption = (
-        f"🗣 *Произношение*\n\n"
-        f"Послушай и повтори: *{word['hanzi']}* `{word['pinyin']}` — {word['ru']}\n\n"
-        f"Отправь голосовое или нажми «Пропустить»"
+        f"🗣 *Мiko слушает!*\n\n"
+        f"Повтори за мной: *{word['hanzi']}* `{word['pinyin']}` — {word['ru']}\n\n"
+        f"Отправь голосовое 🎤 или нажми «Пропустить»"
     )
     try:
         audio = await _tts(word["hanzi"])
@@ -158,15 +186,16 @@ async def _handle_pronunciation_voice(update: Update, context: ContextTypes.DEFA
     pinyin = pron_word["pinyin"]
     if hanzi in recognized or recognized in hanzi:
         await status.edit_text(
-            f"✅ Отлично! Распознал: *{recognized}*\n*{hanzi}* `{pinyin}` — произнесено верно!",
+            f"🔥 Мiko услышал: *{recognized}*\n"
+            f"*{hanzi}* `{pinyin}` — произношение зачтено!",
             parse_mode="Markdown",
         )
         context.user_data["phase"] = "exercises"
         await _send_exercise(update.message, context)
     else:
         await status.edit_text(
-            f"🎤 Распознал: *{recognized}*\n"
-            f"Ожидалось: *{hanzi}* `{pinyin}` — попробуй ещё раз или пропусти.",
+            f"🎤 Слышу: *{recognized}*\n"
+            f"Ожидалось: *{hanzi}* `{pinyin}` — попробуй ещё раз или пропусти 👇",
             parse_mode="Markdown",
         )
 
@@ -190,18 +219,16 @@ def _make_test_keyboard(options: list) -> InlineKeyboardMarkup:
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "你好！👋 Я твой личный репетитор китайского языка.\n\n"
-        "Программа: 50 уроков — полный HSK 1 и HSK 2 (~300 слов).\n"
-        "Каждый урок: слова с иероглифами, пиньинь, мнемоники, "
-        "аудио произношение и упражнения.\n\n"
-        "*Команды:*\n"
+        "你好！ Я *Мико* — твой гид по китайскому 学\n\n"
+        "Буду учить тебя как друг: без скуки, с иероглифами, "
+        "аудио и мнемониками. 50 уроков — весь HSK 1 и HSK 2 (~300 слов).\n\n"
+        "*Что умею:*\n"
         "/lesson1 — начать урок 1\n"
-        "/lessons — список всех уроков\n"
+        "/lessons — все уроки\n"
         "/progress — твой прогресс\n"
-        "/test hsk1 — финальный тест HSK 1\n"
-        "/test hsk2 — финальный тест HSK 2\n"
-        "/repeat1 — повторить урок 1\n\n"
-        "Начнём? Напиши /lesson1",
+        "/test hsk1 / /test hsk2 — финальные тесты\n"
+        "/repeat1 — повторить урок\n\n"
+        "Погнали? 👉 /lesson1",
         parse_mode="Markdown",
     )
 
@@ -294,9 +321,8 @@ async def _start_test(msg, context: ContextTypes.DEFAULT_TYPE, level: str):
     context.user_data["test_score"] = 0
     await msg.reply_text(
         f"📝 *{test['title']}*\n\n"
-        f"{len(test['questions'])} вопросов. "
-        f"Порог сдачи: {int(test['pass_threshold'] * 100)}%.\n\n"
-        f"Начинаем!",
+        f"{len(test['questions'])} вопросов, порог {int(test['pass_threshold'] * 100)}%.\n\n"
+        f"Мiko смотрит — не подведи! 😏",
         parse_mode="Markdown",
     )
     await _send_test_question(msg, context)
@@ -372,15 +398,15 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
     ans_idx = int(query.data.split("_")[1])
     if ans_idx == q["correct_idx"]:
         context.user_data["listen_score"] = context.user_data.get("listen_score", 0) + 1
-        await query.message.reply_text(
-            f"✅ Правильно! *{q['hanzi']}* `{q['pinyin']}` — {q['ru']}",
-            parse_mode="Markdown",
+        phrase = random.choice(_LISTEN_CORRECT).format(
+            hanzi=q["hanzi"], pinyin=q["pinyin"], ru=q["ru"]
         )
+        await query.message.reply_text(phrase, parse_mode="Markdown")
     else:
-        await query.message.reply_text(
-            f"❌ Это было *{q['hanzi']}* `{q['pinyin']}` — {q['ru']}",
-            parse_mode="Markdown",
+        phrase = random.choice(_LISTEN_WRONG).format(
+            hanzi=q["hanzi"], pinyin=q["pinyin"], ru=q["ru"]
         )
+        await query.message.reply_text(phrase, parse_mode="Markdown")
     context.user_data["listen_idx"] += 1
     if context.user_data["listen_idx"] >= len(questions):
         await _send_pronunciation_prompt(query.message, context)
@@ -403,13 +429,11 @@ async def handle_exercise_answer(update: Update, context: ContextTypes.DEFAULT_T
     ex = lesson["exercises"][idx]
     if ans_idx == ex["answer"]:
         context.user_data["ex_score"] += 1
-        await query.message.reply_text("✅ Правильно!")
+        await query.message.reply_text(random.choice(_CORRECT))
     else:
         correct = ex["options"][ex["answer"]]
-        await query.message.reply_text(
-            f"❌ Неверно. Правильный ответ: *{correct}*",
-            parse_mode="Markdown",
-        )
+        phrase = random.choice(_WRONG).format(correct=correct)
+        await query.message.reply_text(phrase, parse_mode="Markdown")
     context.user_data["ex_idx"] += 1
     await _send_exercise(query.message, context)
 
@@ -436,13 +460,19 @@ async def _finish_lesson(msg, context: ContextTypes.DEFAULT_TYPE):
         callback_data=f"redo_{lesson_id}",
     )])
 
-    icon = "🎉" if passed else "😅"
-    result_text = (
-        f"{icon} *Урок {lesson_id} завершён!*\n\n"
-        f"Результат: {score}/{total} ({int(pct * 100)}%)\n"
-        + ("✅ Урок засчитан!" if passed
-           else "Нужно ≥50% для зачёта. Попробуй ещё раз!")
-    )
+    if passed:
+        result_text = (
+            f"🔥 *Урок {lesson_id} пройден!*\n\n"
+            f"Результат: {score}/{total} ({int(pct * 100)}%)\n\n"
+            f"Мико кивает с одобрением 😏 Двигаемся дальше!"
+        )
+    else:
+        result_text = (
+            f"😤 *Урок {lesson_id} — почти!*\n\n"
+            f"Результат: {score}/{total} ({int(pct * 100)}%)\n\n"
+            f"Нужно ≥50% для зачёта. Мико говорит: не сдавайся, "
+            f"повтори и попробуй снова 💪"
+        )
     await msg.reply_text(
         result_text,
         parse_mode="Markdown",
@@ -505,14 +535,21 @@ async def _finish_test(msg, context: ContextTypes.DEFAULT_TYPE):
     passed = pct >= test["pass_threshold"]
 
     keyboard = [[InlineKeyboardButton("🔄 Пересдать", callback_data=f"retest_{level}")]]
-    icon = "🎓" if passed else "📚"
+    if passed:
+        result = (
+            f"🏆 *Тест сдан!*\n\n"
+            f"Результат: {score}/{total} ({int(pct * 100)}%)\n\n"
+            f"Мiko снимает шляпу 🫡 Ты реально молодец!"
+        )
+    else:
+        result = (
+            f"📚 *Тест не сдан*\n\n"
+            f"Результат: {score}/{total} ({int(pct * 100)}%)\n\n"
+            f"Нужно {int(test['pass_threshold'] * 100)}%. "
+            f"Мiko говорит: повтори уроки и ты точно справишься 加油！"
+        )
     await msg.reply_text(
-        f"{icon} *Тест завершён!*\n\n"
-        f"Результат: {score}/{total} ({int(pct * 100)}%)\n\n"
-        + ("✅ Тест сдан! Отличная работа! 🏆"
-           if passed
-           else f"❌ Не сдан. Нужно {int(test['pass_threshold'] * 100)}%. "
-                f"Повтори уроки и попробуй снова."),
+        result,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -579,7 +616,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.unlink(tmp_path)
 
     if not recognized:
-        await msg.edit_text("🤔 Ничего не расслышал. Говори чётче и ближе к микрофону.")
+        await msg.edit_text("🤔 Ничего не расслышал. Говори чётче и ближе к микрофону — Мiko ждёт!")
         return
 
     matched = []
@@ -588,16 +625,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             matched.append((hanzi, pinyin, ru))
 
     if matched:
-        lines = [f"🎤 Распознал: *{recognized}*\n"]
+        lines = [f"🎤 Слышу: *{recognized}*\n"]
         for hanzi, pinyin, ru in matched:
             lines.append(f"✅ *{hanzi}* `{pinyin}` — {ru}")
-        lines.append("\nОтличная практика! 加油！")
+        lines.append("\nКрутая практика! 加油！🔥")
         await msg.edit_text("\n".join(lines), parse_mode="Markdown")
     else:
         await msg.edit_text(
-            f"🎤 Распознал: *{recognized}*\n\n"
-            "🤔 Это слово пока не в наших уроках.\n"
-            "Попробуй произнести слово из текущего урока.",
+            f"🎤 Слышу: *{recognized}*\n\n"
+            "🤔 Такого слова пока нет в наших уроках.\n"
+            "Попробуй слово из текущего урока — Мiko оценит 😏",
             parse_mode="Markdown",
         )
 
