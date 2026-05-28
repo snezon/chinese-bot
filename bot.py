@@ -1,5 +1,8 @@
 import os
+import re
+import tempfile
 import logging
+from openai import AsyncOpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -8,11 +11,32 @@ from telegram.ext import (
 import db
 import lesson_engine
 
+_openai = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+
+# flat dict: hanzi → (pinyin, ru) for all HSK1+2 words — built once at startup
+_all_words: dict = {}
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+# ── word index ───────────────────────────────────────────────────────────────
+
+def _build_word_index():
+    """Load all lesson words into a flat hanzi→(pinyin, ru) dict."""
+    global _all_words
+    for meta in lesson_engine.get_all_lesson_meta():
+        try:
+            lesson = lesson_engine.load_lesson(meta["id"])
+        except Exception:
+            continue
+        for w in lesson.get("words", []):
+            hanzi = w.get("hanzi", "").strip()
+            if hanzi:
+                _all_words[hanzi] = (w.get("pinyin", ""), w.get("ru", ""))
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -354,10 +378,70 @@ async def handle_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cmd_test(update, context)
 
 
+# ── pronunciation ─────────────────────────────────────────────────────────────
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download voice → Whisper → compare with lesson words → feedback."""
+    if not _openai.api_key:
+        await update.message.reply_text("OPENAI_API_KEY не задан.")
+        return
+
+    msg = await update.message.reply_text("🎤 Слушаю...")
+
+    voice = update.message.voice or update.message.audio
+    tg_file = await voice.get_file()
+
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        await tg_file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "rb") as audio_f:
+            transcript = await _openai.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_f,
+                language="zh",
+                response_format="text",
+            )
+        recognized = transcript.strip()
+    except Exception as e:
+        logger.error("Whisper error: %s", e)
+        await msg.edit_text("❌ Не удалось распознать аудио. Попробуй ещё раз.")
+        return
+    finally:
+        os.unlink(tmp_path)
+
+    if not recognized:
+        await msg.edit_text("🤔 Ничего не расслышал. Говори чётче и ближе к микрофону.")
+        return
+
+    # Check against known words
+    matched = []
+    for hanzi, (pinyin, ru) in _all_words.items():
+        if hanzi in recognized:
+            matched.append((hanzi, pinyin, ru))
+
+    if matched:
+        lines = [f"🎤 Распознал: *{recognized}*\n"]
+        for hanzi, pinyin, ru in matched:
+            lines.append(f"✅ *{hanzi}* `{pinyin}` — {ru}")
+        lines.append("\nОтличная практика! 加油！")
+        await msg.edit_text("\n".join(lines), parse_mode="Markdown")
+    else:
+        await msg.edit_text(
+            f"🎤 Распознал: *{recognized}*\n\n"
+            "🤔 Это слово пока не в наших уроках.\n"
+            "Попробуй произнести слово из текущего урока.",
+            parse_mode="Markdown",
+        )
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     db.init_db()
+    _build_word_index()
+    logger.info("Word index loaded: %d words", len(_all_words))
 
     token = os.environ.get("BOT_TOKEN")
     if not token:
@@ -376,6 +460,7 @@ def main():
         filters.TEXT & filters.Regex(r'^/(lesson|repeat)\d+'),
         cmd_lesson_shortcut,
     ))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     app.add_handler(CallbackQueryHandler(handle_exercise_answer, pattern=r"^ans_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_test_answer, pattern=r"^tans_\d+$"))
     app.add_handler(CallbackQueryHandler(handle_nav, pattern=r"^(next_|redo_|retest_)"))
