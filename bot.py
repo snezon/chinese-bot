@@ -680,7 +680,8 @@ def main():
     db.init_db()
     _build_word_index()
     logger.info("Word index loaded: %d words", len(_all_words))
-    _get_whisper()  # warm up model at startup so first voice is instant
+    # Warm up Whisper in background so polling starts immediately
+    threading.Thread(target=_get_whisper, daemon=True).start()
     _voice_semaphore = asyncio.Semaphore(1)  # one voice at a time
 
     token = os.environ.get("BOT_TOKEN")
