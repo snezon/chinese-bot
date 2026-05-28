@@ -210,20 +210,26 @@ async def _handle_pronunciation_voice(update: Update, context: ContextTypes.DEFA
         os.unlink(tmp_path)
     hanzi = pron_word["hanzi"]
     pinyin = pron_word["pinyin"]
-    if hanzi in recognized or recognized in hanzi:
+    if recognized and (hanzi in recognized or recognized in hanzi):
         await status.edit_text(
             f"🔥 Мiko услышал: *{recognized}*\n"
-            f"*{hanzi}* `{pinyin}` — произношение зачтено!",
+            f"*{hanzi}* `{pinyin}` — произношение зачтено! Погнали дальше 💪",
             parse_mode="Markdown",
         )
-        context.user_data["phase"] = "exercises"
-        await _send_exercise(update.message, context)
-    else:
+    elif recognized:
         await status.edit_text(
             f"🎤 Слышу: *{recognized}*\n"
-            f"Ожидалось: *{hanzi}* `{pinyin}` — попробуй ещё раз или пропусти 👇",
+            f"Ожидалось *{hanzi}* `{pinyin}` — не страшно, запомни и идём дальше!",
             parse_mode="Markdown",
         )
+    else:
+        await status.edit_text(
+            f"🤔 Не расслышал ничего — но идём дальше!",
+            parse_mode="Markdown",
+        )
+    # Always advance — pronunciation is practice, not a gate
+    context.user_data["phase"] = "exercises"
+    await _send_exercise(update.message, context)
 
 
 # ── keyboard helpers ─────────────────────────────────────────────────────────
