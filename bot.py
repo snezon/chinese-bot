@@ -226,7 +226,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/lesson1 — начать урок 1\n"
         "/lessons — все уроки\n"
         "/progress — твой прогресс\n"
-        "/test hsk1 / /test hsk2 — финальные тесты\n"
+        "/testhsk1 / /testhsk2 — финальные тесты\n"
         "/repeat1 — повторить урок\n\n"
         "Погнали? 👉 /lesson1",
         parse_mode="Markdown",
@@ -249,8 +249,8 @@ async def cmd_lessons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hsk2_done = db.get_test_result("hsk2")
     lines.append(
         f"\n*Тесты:*\n"
-        f"{'✅' if hsk1_done['passed'] else '🔒'} Финальный тест HSK 1\n"
-        f"{'✅' if hsk2_done['passed'] else '🔒'} Финальный тест HSK 2"
+        f"{'✅' if hsk1_done['passed'] else '🔒'} /testhsk1 — Финальный тест HSK 1\n"
+        f"{'✅' if hsk2_done['passed'] else '🔒'} /testhsk2 — Финальный тест HSK 2"
     )
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -345,6 +345,15 @@ async def cmd_lesson_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE
     lesson_id = int(m.group(2))
     context.args = [str(lesson_id)]
     await cmd_lesson(update, context)
+
+
+async def cmd_test_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    m = re.match(r'^/test(hsk[12])', text, re.IGNORECASE)
+    if not m:
+        return
+    context.args = [m.group(1).lower()]
+    await cmd_test(update, context)
 
 
 async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -660,8 +669,12 @@ def main():
     app.add_handler(CommandHandler("test", cmd_test))
 
     app.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r'^/(lesson|repeat)\d+'),
+        filters.COMMAND & filters.Regex(r'^/(lesson|repeat)\d+'),
         cmd_lesson_shortcut,
+    ))
+    app.add_handler(MessageHandler(
+        filters.COMMAND & filters.Regex(r'^/test(hsk1|hsk2)'),
+        cmd_test_shortcut,
     ))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     app.add_handler(CallbackQueryHandler(handle_listening_answer, pattern=r"^lans_\d+$"))
